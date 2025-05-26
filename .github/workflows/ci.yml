@@ -3,7 +3,61 @@ run-name: CI snapshot disparada por ${{ github.actor }}
 
 on:
   workflow_dispatch:
+    inputs:
+      tipo_versao:
+        type: choice
+        description: 'Tipo de build'     
+        required: true
+        default: 'snapshot'
+        options:
+        - snapshot
+        - patch
+        - minor
+        - major
 jobs:
+  GerarVersao:
+    runs-on: ubuntu-latest
+    outputs:
+      versao: ${{ steps.versao.outputs.versao }}
+    steps:
+      - name: Baixando o repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Coleta última versão
+        id: ultimatag
+        uses: "WyriHaximus/github-action-get-previous-tag@v1"
+        with:
+          fallback: 1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Número próximas versões
+        id: versoes
+        uses: "WyriHaximus/github-action-next-semvers@v1"
+        with:
+          version: ${{ steps.ultimatag.outputs.tag }}
+      - name: Versão
+        id: versao
+        shell: sh
+        run: |
+          versao=$(
+            case "${{ inputs.tipo_versao }}" in
+              ("patch") echo "${{ steps.versoes.outputs.patch }}" ;;
+              ("minor") echo "${{ steps.versoes.outputs.minor }}" ;;
+              ("major") echo "${{ steps.versoes.outputs.major }}" ;;
+              ("replace_last") echo "${{ steps.ultimatag.outputs.tag }}" ;;
+              ("snapshot") echo "${{ steps.versoes.outputs.minor }}.${{ github.ref_name }}.snapshot" ;;
+              (*) echo "${{ steps.versoes.outputs.minor }}.snapshot" ;;
+            esac)
+          echo "--- Versões ---"
+          echo "snapshot=${{ steps.versoes.outputs.minor }}.snapshot_to_ligado"
+          echo "patch=${{ steps.versoes.outputs.patch }}_to_ligado"
+          echo "minor=${{ steps.versoes.outputs.minor }}_to_ligado"
+          echo "major=${{ steps.versoes.outputs.major }}_to_ligado"
+          echo "replace_last=${{ steps.ultimatag.outputs.tag }}_to_ligado"
+          echo "--- Versão escolhida ---"
+          echo "versao=${versao}_to_ligado"
+          echo "versao=${versao}_to_ligado" >> "$GITHUB_OUTPUT"
   build_back:
     name: Build Back
     runs-on: ubuntu-latest
@@ -58,7 +112,7 @@ jobs:
 
   empacotar:
     name: Empacotar
-    needs: [build_back, build_front]
+    needs: [build_back, build_front, GerarVersao]
     runs-on: ubuntu-latest
     steps:
      - name: Download Zip Frontend
@@ -74,7 +128,7 @@ jobs:
        env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
        with:
-         body: Release
-         tag_name: Release
-         fail_on_unmatched_files: true
+         body: Release ${{ needs.GerarVersao.outputs.versao }}
+         tag_name: ${{ needs.GerarVersao.outputs.versao }}
+         fail_on_unmatched_files: false
          files: backend.zip,frontend.zip
